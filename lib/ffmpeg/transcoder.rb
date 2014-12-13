@@ -1,6 +1,12 @@
 require 'open3'
 require 'shellwords'
 
+class Object
+  def blank?
+    respond_to?(:empty?) ? !!empty? : !self
+  end
+end
+
 module FFMPEG
   class Transcoder
     @@timeout = 30
@@ -13,8 +19,13 @@ module FFMPEG
       @@timeout
     end
 
-    def initialize(movie, output_file, options = EncodingOptions.new, transcoder_options = {})
-      @movie = movie
+    def initialize(path, output_file, options = EncodingOptions.new, transcoder_options = {})
+      if path.is_a?(String)
+        @url = path
+      else
+        @movie = path
+      end
+
       @output_file = output_file
 
       if options.is_a?(String) || options.is_a?(EncodingOptions)
@@ -52,9 +63,11 @@ module FFMPEG
     end
 
     private
-    # frame= 4855 fps= 46 q=31.0 size=   45306kB time=00:02:42.28 bitrate=2287.0kbits/
+
     def transcode_movie
-      @command = "#{FFMPEG.ffmpeg_binary} -y -i #{Shellwords.escape(@movie.path)} #{@raw_options} #{Shellwords.escape(@output_file)}"
+      input = @url && !@url.blank? ? @url : @movie.path
+
+      @command = "#{FFMPEG.ffmpeg_binary} -y -i #{Shellwords.escape(input)} #{@raw_options} #{Shellwords.escape(@output_file)}"
       FFMPEG.logger.info("Running transcoding...\n#{@command}\n")
       @output = ""
 
@@ -70,7 +83,7 @@ module FFMPEG
               else # better make sure it wont blow up in case of unexpected output
                 time = 0.0
               end
-              progress = time / @movie.duration
+              progress = @movie ? time / @movie.duration : @output
               yield(progress) if block_given?
             end
           end
@@ -103,7 +116,8 @@ module FFMPEG
        # if true runs #validate_output_file
       @transcoder_options[:validate] = @transcoder_options.fetch(:validate) { true }
 
-      return if @movie.calculated_aspect_ratio.nil?
+      return if !@movie or @movie.calculated_aspect_ratio.nil?
+
       case @transcoder_options[:preserve_aspect_ratio].to_s
       when "width"
         new_height = @raw_options.width / @movie.calculated_aspect_ratio
